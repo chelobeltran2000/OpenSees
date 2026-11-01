@@ -1,0 +1,83 @@
+# Builds opensees.pyd (Windows, Python 3.10-3.13) from OpenSees v3.8.0 + EASER ConcreteCM patch.
+# Copy of the official build-win job (.github/workflows/build_cmake.yml), with a Python-version matrix and only this job.
+# Goes in the fork as .github/workflows/build_win_cmfix.yml, on a branch created from tag v3.8.0 that already
+# has the patch committed (git apply ConcreteCM_easer.patch). Runs on every push to branch ConcreteCM-Fix
+# ("Run workflow" in the Actions tab only appears for workflows on the default branch).
+name: Build Windows cmfix
+
+on:
+  push:
+    branches: [ConcreteCM-Fix]
+  workflow_dispatch:
+
+jobs:
+  build-win:
+    name: Build Windows VS2022 (Python ${{ matrix.python }})
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - name: Obtaining OpenSees Source Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check the patch is in
+        shell: bash
+        run: grep -n "EASER patch" SRC/material/uniaxial/ConcreteCM.cpp
+      - name: Microsoft Visual Studio
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          vsversion: 2022
+      - name: Intel oneAPI Basic & HPC Toolkits
+        shell: pwsh
+        env:
+          WINDOWS_BASEKIT_URL: https://registrationcenter-download.intel.com/akdlm/IRC_NAS/7dff44ba-e3af-4448-841c-0d616c8da6e7/w_BaseKit_p_2024.1.0.595_offline.exe
+          WINDOWS_BASEKIT_COMPONENTS: intel.oneapi.win.mkl.devel
+          WINDOWS_HPCKIT_URL: https://registrationcenter-download.intel.com/akdlm/IRC_NAS/c95a3b26-fc45-496c-833b-df08b10297b9/w_HPCKit_p_2024.1.0.561_offline.exe
+          WINDOWS_HPCKIT_COMPONENTS: "intel.oneapi.win.mpi.devel:intel.oneapi.win.ifort-compiler"
+        working-directory: ${{ github.workspace }}\.github\workflows
+        run: |
+          ./install_fortran.bat $env:WINDOWS_BASEKIT_URL $env:WINDOWS_BASEKIT_COMPONENTS
+          ./install_fortran.bat $env:WINDOWS_HPCKIT_URL $env:WINDOWS_HPCKIT_COMPONENTS
+      - name: Python ${{ matrix.python }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install conan
+        run: |
+          pip install conan
+          conan profile detect --force
+      - name: MUMPS
+        shell: cmd
+        run: |
+          git clone https://github.com/OpenSees/mumps.git
+          cd mumps
+          call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat" intel64 mod
+          cmake -S . -B build -G Ninja -Darith=d -DCMAKE_MSVC_RUNTIME_LIBRARY="MultiThreaded" -DCMAKE_EXE_LINKER_FLAGS="/link /FORCE:MULTIPLE"  -DCMAKE_SHARED_LINKER_FLAGS="/link /FORCE:MULTIPLE"
+          cd build
+          cmake --build . --config Release
+      - name: Building OpenSeesPy
+        shell: cmd
+        run: |
+          set CMAKE_POLICY_VERSION_MINIMUM=3.5
+          conan install . -s arch=x86_64 -s compiler.runtime=static --build=missing -c tools.cmake.cmaketoolchain:generator=Ninja
+          call "C:\Program Files (x86)\Intel\oneAPI\setvars.bat" intel64 mod
+          cmake.exe -S . -B build/Release -G "Ninja"  -DCMAKE_TOOLCHAIN_FILE=build/Release/generators/conan_toolchain.cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_MSVC_RUNTIME_LIBRARY="MultiThreaded" -DCMAKE_Fortran_COMPILER="ifx" -DBLA_STATIC=ON  -DMKL_LINK=static -DMKL_INTERFACE_FULL=intel_lp64  -DMUMPS_DIR="..\..\mumps\build" -DCMAKE_EXE_LINKER_FLAGS="/FORCE:MULTIPLE" -DCMAKE_SHARED_LINKER_FLAGS="/FORCE:MULTIPLE" -DCMAKE_NINJA_FORCE_RESPONSE_FILE=ON
+          cd build/Release
+          cmake --build . --config Release --target OpenSeesPy -j8
+      - name: Verification
+        shell: pwsh
+        run: |
+          mv ./build/Release/OpenSeesPy.dll ./build/Release/opensees.pyd
+          cp "C:\Program Files (x86)\Intel\oneAPI\compiler\2024.1\bin\libiomp5md.dll" ./build/Release/
+          $env:PYTHONPATH = "./build/Release/"
+          python -c "import opensees as ops; ops.uniaxialMaterial('ConcreteCM', 1, -6.13, -0.0036, 3886.18, 7.236, 1.933, 0.292, 8e-5, 1.2, 10000.0, '-GapClose', 0); ops.testUniaxialMaterial(1); ops.setStrain(-0.001); print('ConcreteCM OK', ops.getStress())"
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: opensees_py${{ matrix.python }}_win_cmfix
+          path: |
+            ./build/Release/opensees.pyd
+            ./build/Release/libiomp5md.dll
