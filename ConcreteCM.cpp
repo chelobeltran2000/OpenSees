@@ -4080,12 +4080,15 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 
 		double Esec=(ff-fi)/(esf-esi);
 
-		// EASER patch (2026-10-31): the power form fi+(es-esi)*(Ei+A*|es-esi|^R) is only valid for R > 0
-		// (Ei and Ef on opposite sides of Esec). With R <= 0 it is singular at es = esi. The side tests
-		// below are equivalent in exact arithmetic, but after r11f/r12f/r14f/r15f overwrite Ef with Esec,
-		// rounding can put Ef a few ulps on the "other" side and reach the power form with R < 0
-		// (stresses of -1e40 after micro-reversals). Use the secant whenever R or A is not usable.
-		if (!(R > 0.0) || !std::isfinite(R) || !std::isfinite(A))	{
+		// EASER patch (2026-10-31, threshold 2026-11-01): the power form fi+(es-esi)*(Ei+A*|es-esi|^R) is
+		// singular at es = esi for R < 0 (Ei and Ef on the same side of Esec). The side tests below are
+		// equivalent in exact arithmetic, but after r11f/r12f/r14f/r15f overwrite Ef with Esec, rounding can
+		// put Ef a few ulps on the "other" side and reach the power form with R < 0 (stresses of -1e40 after
+		// micro-reversals; observed R from -0.2 to -19). Use the secant only for clearly negative R: for
+		// R ~ 0 the power form is already a straight line and the original path is kept, because the
+		// "Fix 1" blocks (Eta==Esectest13, Etb==Esectest10) detect the secant by exact equality and
+		// would otherwise be triggered in cases where the original code did not trigger them.
+		if (R < -1.0e-8 || !std::isfinite(R) || !std::isfinite(A))	{
 			fc=fi+Esec*(es-esi);
 			Et=Esec;
 		}
