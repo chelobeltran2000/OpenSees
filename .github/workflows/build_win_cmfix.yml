@@ -1,7 +1,8 @@
 # Builds opensees.pyd (Windows, Python 3.10-3.13) from OpenSees v3.8.0 + EASER ConcreteCM patch.
 # Copy of the official build-win job (.github/workflows/build_cmake.yml), with a Python-version matrix and only this job.
-# Goes in the fork as .github/workflows/build_win_cmfix.yml on branch ConcreteCM-Fix, whose ROOT holds the patched
-# ConcreteCM.cpp. The source is the official tag v3.8.0 (whatever the branch was created from); the patched file is
+# Goes in the fork as .github/workflows/build_win_cmfix.yml on branch ConcreteCM-Fix, whose ROOT holds one folder per
+# variant (v6/, opt/) with the patched ConcreteCM.cpp and ConcreteCM.h; each variant is built for every Python version.
+# The source is the official tag v3.8.0 (whatever the branch was created from); the patched file is
 # copied over it. Runs on every push to ConcreteCM-Fix ("Run workflow" only appears on the default branch).
 name: Build Windows cmfix
 
@@ -12,12 +13,13 @@ on:
 
 jobs:
   build-win:
-    name: Build Windows VS2022 (Python ${{ matrix.python }})
+    name: Build Windows VS2022 (${{ matrix.variant }}, Python ${{ matrix.python }})
     runs-on: windows-2022
     strategy:
       fail-fast: false
       matrix:
         python: ["3.10", "3.11", "3.12", "3.13"]
+        variant: ["v6", "opt"]
     steps:
       - name: OpenSees v3.8.0 (official repository)
         uses: actions/checkout@v4
@@ -25,15 +27,17 @@ jobs:
           repository: OpenSees/OpenSees
           ref: v3.8.0
           fetch-depth: 0
-      - name: This branch (holds the patched ConcreteCM.cpp at its root)
+      - name: This branch (holds the patched sources, one folder per variant)
         uses: actions/checkout@v4
         with:
           path: fix
       - name: Apply the patch
         shell: bash
         run: |
-          cp fix/ConcreteCM.cpp SRC/material/uniaxial/ConcreteCM.cpp
+          cp fix/${{ matrix.variant }}/ConcreteCM.cpp SRC/material/uniaxial/ConcreteCM.cpp
+          cp fix/${{ matrix.variant }}/ConcreteCM.h SRC/material/uniaxial/ConcreteCM.h
           rm -rf fix
+          grep -n "EASER" SRC/material/uniaxial/ConcreteCM.h
           grep -n "EASER patch" SRC/material/uniaxial/ConcreteCM.cpp
       - name: Microsoft Visual Studio
         uses: ilammy/msvc-dev-cmd@v1
@@ -86,7 +90,7 @@ jobs:
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: opensees_py${{ matrix.python }}_win_cmfix
+          name: opensees_py${{ matrix.python }}_win_cmfix_${{ matrix.variant }}
           path: |
             ./build/Release/opensees.pyd
             ./build/Release/libiomp5md.dll
