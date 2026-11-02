@@ -4092,11 +4092,7 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 			fc=fi+Esec*(es-esi);
 			Et=Esec;
 		}
-		else if (A==1.0e300 || A==0.0)	{
-			fc=fi+Esec*(es-esi);
-			Et=Esec;
-		}
-		else if (pow(fabs(es-esi),-R)==0.0 || pow(fabs(es-esi),-R)>1.797e308 || pow(fabs(es-esi),-R)<-1.797e308)	{
+		else if (A==0.0)	{
 			fc=fi+Esec*(es-esi);
 			Et=Esec;
 		}
@@ -4109,9 +4105,17 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 			Et=Esec;
 		}
 		else	{
-			fc=fi+(es-esi)*(Ei+A*pow(fabs(es-esi),R));
-			Et=Ei+A*(R+1)*pow(fabs(es-esi),R);
-			if (Et>1.797e308 || Et<-1.797e308 || !std::isfinite(fc) || !std::isfinite(Et))	{	// EASER patch: also NaN
+			// EASER patch (2026-11-01): A*|d|^R == (Esec-Ei)*(|d|/|df|)^R with d = es-esi, df = esf-esi. The
+			// original evaluated A*pow(|d|,R) with A = (Esec-Ei)/|df|^R, and guarded pow(|d|,-R) against
+			// overflow by falling back to the SECANT. For large R (Esec ~ Ei, e.g. R = 78, A = -1.7e278) the
+			// guard fired for |d| < ~1.1e-4 and the curve jumped between the secant (slope Esec) and the
+			// power form (slope Ei) at a fixed strain: a stress discontinuity of ~0.015 ksi in rule 3 that
+			// stalls Newton. The ratio form has no huge intermediates and underflows smoothly to 0.
+			double ratio=fabs(es-esi)/fabs(esf-esi);
+			double term=(Esec-Ei)*pow(ratio,R);
+			fc=fi+(es-esi)*(Ei+term);
+			Et=Ei+(R+1)*term;
+			if (!std::isfinite(fc) || !std::isfinite(Et))	{
 				fc=fi+Esec*(es-esi);
 				Et=Esec;
 			}
