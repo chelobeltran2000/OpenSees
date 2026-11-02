@@ -1,7 +1,7 @@
 # Builds opensees.pyd (Windows, Python 3.10-3.13) from OpenSees v3.8.0 + EASER ConcreteCM patch.
 # Copy of the official build-win job (.github/workflows/build_cmake.yml), with a Python-version matrix and only this job.
 # Goes in the fork as .github/workflows/build_win_cmfix.yml on branch ConcreteCM-Fix, whose ROOT holds one folder per
-# variant (v6/, opt/) with the patched ConcreteCM.cpp and ConcreteCM.h; each variant is built for every Python version.
+# variant (v6/, opt/, res/) with the patched ConcreteCM.cpp and ConcreteCM.h; each variant is built for every Python version.
 # The source is the official tag v3.8.0 (whatever the branch was created from); the patched file is
 # copied over it. Runs on every push to ConcreteCM-Fix ("Run workflow" only appears on the default branch).
 name: Build Windows cmfix
@@ -19,7 +19,7 @@ jobs:
       fail-fast: false
       matrix:
         python: ["3.10", "3.11", "3.12", "3.13"]
-        variant: ["v6", "opt"]
+        variant: ["res"]
     steps:
       - name: OpenSees v3.8.0 (official repository)
         uses: actions/checkout@v4
@@ -87,6 +87,7 @@ jobs:
           cp "C:\Program Files (x86)\Intel\oneAPI\compiler\2024.1\bin\libiomp5md.dll" ./build/Release/
           $env:PYTHONPATH = "./build/Release/"
           python -c "import opensees as ops; ops.uniaxialMaterial('ConcreteCM', 1, -6.13, -0.0036, 3886.18, 7.236, 1.933, 0.292, 8e-5, 1.2, 10000.0, '-GapClose', 0); ops.testUniaxialMaterial(1); ops.setStrain(-0.001); print('ConcreteCM OK', ops.getStress())"
+          python -c "import opensees as ops; ops.uniaxialMaterial('ConcreteCM', 2, -6.13, -0.0036, 3886.18, 7.236, 1.933, 0.292, 8e-5, 1.2, 10000.0, '-GapClose', 0, '-Residual', 0.2); ops.testUniaxialMaterial(2); ops.setStrain(-0.05); s = ops.getStress(); print('ConcreteCM -Residual', s); assert abs(s/-6.13 - 0.2) < 1e-9"
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
