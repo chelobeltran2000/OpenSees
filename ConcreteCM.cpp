@@ -46,6 +46,12 @@
 #include <float.h>
 #include <cmath>   // EASER patch: std::isfinite
 
+// EASER patch: auxiliary members are never initialised in the original (see hacer_parche.py)
+#define EASER_ZERO_AUX xn=0.0; nn=0.0; xsp=0.0; xp=0.0; np=0.0; xcrk=0.0; y=0.0; z=0.0; eunn=0.0; funn=0.0; espln=0.0; Epln=0.0; Esecn=0.0; Esectest=0.0; Esectest10=0.0; Esectest13=0.0; delen=0.0; delfn=0.0; fnewn=0.0; Enewn=0.0; esren=0.0; fren=0.0; Eren=0.0; fnewstn=0.0; Enewstn=0.0; esrestn=0.0; frestn=0.0; Erestn=0.0; eunp=0.0; funp=0.0; esplp=0.0; Eplp=0.0; Esecp=0.0; delep=0.0; delfp=0.0; fnewp=0.0; Enewp=0.0; esrep=0.0; frep=0.0; Erep=0.0; fnewstp=0.0; Enewstp=0.0; esrestp=0.0; frestp=0.0; Erestp=0.0; esi=0.0; esi10=0.0; esi13=0.0; fi=0.0; fi10=0.0; fi13=0.0; Ei=0.0; Ei10=0.0; Ei13=0.0; esf=0.0; esf10=0.0; esf13=0.0; ff=0.0; ff10=0.0; ff13=0.0; Ef=0.0; Ef10=0.0; Ef13=0.0; R=0.0; R10=0.0; R13=0.0; A=0.0; A10=0.0; A13=0.0; fc=0.0; Et=0.0; fca=0.0; Eta=0.0; fcb=0.0; Etb=0.0; fa=0.0; fb=0.0;
+#define EASER_ZERO_COMMITTED fpcc=0.0; epcc=0.0; Ec=0.0; rc=0.0; xcrn=0.0; ft=0.0; et=0.0; rt=0.0; xcrp=0.0; Ceunn=0.0; Cfunn=0.0; Ceunp=0.0; Cfunp=0.0; Cer=0.0; Cfr=0.0; Cer0n=0.0; Cfr0n=0.0; Cer0p=0.0; Cfr0p=0.0; Ce0=0.0; Cea=0.0; Ceb=0.0; Ced=0.0; Cinc=0.0; Crule=0.0; Cstrain=0.0; Cstress=0.0; Ctangent=0.0; mon=0; Gap=0;
+// EASER patch: derived quantities of the committed history, recomputed at the start of every trial
+#define EASER_RECOMPUTE_DERIVED esplnf(Teunn,Tfunn); Eplnf(Teunn); delenf(Teunn); delfnf(Teunn,Tfunn); fnewnf(Teunn,Tfunn); Enewnf(Teunn,Tfunn); esrenf(Teunn); freErenf(Teunn); fnewstnf(Tfunn,delfn,Teunn,Ter0n,espln); Enewstnf(fnewstn,Tfr0n,Teunn,Ter0n); esrestnf(Teunn,delen,Ter0n,espln); freErestnf(Teunn,Tfunn,Ter0n); esplpf(Teunp,Tfunp,Te0,espln); Eplpf(Te0,Teunp); Esecpf(Te0,Teunp,Tfunp,espln); delepf(Teunp,Te0); delfpf(Tfunp,Teunp,Te0); fnewpf(Tfunp,Teunp,Te0); Enewpf(Teunp,Tfunp,Te0,espln); esrepf(Teunp,Te0); freErepf(Teunp,Te0); fnewstpf(Tfunp,delfp,Teunp,Ter0p,esplp,Te0); Enewstpf(fnewstp,Tfr0p,Teunp,Ter0p); esrestpf(Teunp,delep,Ter0p,esplp); freErestpf(Teunp,Tfunp,Ter0p,Te0,espln);
+
 #include <elementAPI.h>
 
 #ifndef fmin
@@ -147,6 +153,8 @@ Crule(0.0), Cstrain(0.0), Cstress(0.0), Ctangent(0.0)
 
 {
 
+	// EASER patch: zero auxiliary members before first use
+	EASER_ZERO_AUX
 	// Set trial values
 	this->revertToLastCommit();
 
@@ -164,6 +172,8 @@ Cfr0n(0.0), Cer0p(0.0), Cfr0p(0.0), Ce0(0.0), Cea(0.0), Ceb(0.0), Ced(0.0), Cinc
 Crule(0.0), Cstrain(0.0), Cstress(0.0), Ctangent(0.0) 
 
 {
+	// EASER patch: zero auxiliary members before first use
+	EASER_ZERO_AUX
 	// Set trial values
 	this->revertToLastCommit();
 
@@ -176,6 +186,10 @@ Crule(0.0), Cstrain(0.0), Cstress(0.0), Ctangent(0.0)
 ConcreteCM::ConcreteCM(int tag)
 	:UniaxialMaterial(tag, MAT_TAG_ConcreteCM)
 {
+	// EASER patch: zero auxiliary members before first use
+	EASER_ZERO_AUX
+	// EASER patch: zero inputs and committed state too (getCopy overwrites them)
+	EASER_ZERO_COMMITTED
 	// Set trial values
 	this->revertToLastCommit();
 
@@ -197,6 +211,9 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 	// Set trial strain
 	this->revertToLastCommit();
 	Tstrain = strain;
+	// EASER patch: auxiliary values are used across calls without being recomputed (Fix 1/2 blocks,
+	// rules 7/8/9/13 continuing): recompute them from the committed history before every trial
+	EASER_RECOMPUTE_DERIVED
 
 	if (mon == 1) { // switch to monotonic material ONLY (invoked in FSAM)
 
@@ -820,6 +837,9 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 								RAf(esi,fi,Ei,esf,ff,Ef);
 
 								fcEturf(Tea,esi,fi,esf,ff,Ei,Ef,A,R);
+
+								fca=fc;	// EASER patch (v5c): missing in the original (cf. fcb=fc after r77f)
+								Eta=Et;
 
 								esi=Ter;
 								fi=Tfr;
@@ -1750,7 +1770,7 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 								Eta=0;
 							} else { 
 								Eta=Enewn;
-								fca=Et*(Tea-espln);
+								fca=Eta*(Tea-espln);	// EASER patch (v5b): Eta (= Enewn, the slope of the line just chosen), not the secant Et
 							} 
 						} 
 						// Fix 1
@@ -2602,7 +2622,7 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 								Eta=0;
 							} else { 
 								Eta=Enewn;
-								fca=Et*(Tea-espln);
+								fca=Eta*(Tea-espln);	// EASER patch (v5b): Eta (= Enewn, the slope of the line just chosen), not the secant Et
 							} 
 						} 
 						//Fix 1
@@ -3329,6 +3349,9 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 								RAf(esi,fi,Ei,esf,ff,Ef);
 
 								fcEturf(Tea,esi,fi,esf,ff,Ei,Ef,A,R);
+
+								fca=fc;	// EASER patch (v5c): missing in the original (cf. fcb=fc after r77f)
+								Eta=Et;
 
 								esi=Ter;
 								fi=Tfr;
@@ -4071,7 +4094,7 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 
 	void ConcreteCM::fcEturf(double es, double esi, double fi, double esf, double ff, double Ei, double Ef, double A, double R)
 	{
-		// EASER patch (2026-10-31): degenerate curve (start and end points coincide).
+		// EASER patch: degenerate curve (start and end points coincide) -> line with the initial slope.
 		if (fabs(esf-esi) < 1.0e-14)	{
 			fc=fi+Ei*(es-esi);
 			Et=Ei;
@@ -4080,21 +4103,29 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 
 		double Esec=(ff-fi)/(esf-esi);
 
-		// EASER patch (2026-10-31, threshold 2026-11-01): the power form fi+(es-esi)*(Ei+A*|es-esi|^R) is
-		// singular at es = esi for R < 0 (Ei and Ef on the same side of Esec). The side tests below are
-		// equivalent in exact arithmetic, but after r11f/r12f/r14f/r15f overwrite Ef with Esec, rounding can
-		// put Ef a few ulps on the "other" side and reach the power form with R < 0 (stresses of -1e40 after
-		// micro-reversals; observed R from -0.2 to -19). Use the secant only for clearly negative R: for
-		// R ~ 0 the power form is already a straight line and the original path is kept, because the
-		// "Fix 1" blocks (Eta==Esectest13, Etb==Esectest10) detect the secant by exact equality and
-		// would otherwise be triggered in cases where the original code did not trigger them.
+		// EASER patch: the power form is singular at es = esi for R < 0 (Ei, Ef on the same side of Esec; the side
+		// tests below miss it when rounding puts Ef a few ulps across Esec). Secant for clearly negative R.
 		if (R < -1.0e-8 || !std::isfinite(R) || !std::isfinite(A))	{
 			fc=fi+Esec*(es-esi);
 			Et=Esec;
 		}
-		else if (A==0.0)	{
+		else if (A==1.0e300 || A==0.0)	{
 			fc=fi+Esec*(es-esi);
 			Et=Esec;
+		}
+		else if (pow(fabs(es-esi),-R)==0.0 || pow(fabs(es-esi),-R)>1.797e308 || pow(fabs(es-esi),-R)<-1.797e308)	{
+			// EASER patch: |es-esi|^R underflowed. Inside a genuine curve (R > 0, Ei and Ef on opposite sides of
+			// Esec) the original jumped to the secant here; evaluate the power term as (Esec-Ei)*ratio^R instead.
+			double ratio=fabs(es-esi)/fabs(esf-esi);
+			if (R > 0.0 && ratio <= 1.0 && ((Ei > Esec && Ef < Esec) || (Ei < Esec && Ef > Esec)))	{
+				double term=(Esec-Ei)*pow(ratio,R);
+				fc=fi+(es-esi)*(Ei+term);
+				Et=Ei+(R+1)*term;
+			}
+			else	{
+				fc=fi+Esec*(es-esi);
+				Et=Esec;
+			}
 		}
 		else if (Ei>=Esec && Ef>=Esec)	{
 			fc=fi+Esec*(es-esi);
@@ -4105,17 +4136,9 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 			Et=Esec;
 		}
 		else	{
-			// EASER patch (2026-11-01): A*|d|^R == (Esec-Ei)*(|d|/|df|)^R with d = es-esi, df = esf-esi. The
-			// original evaluated A*pow(|d|,R) with A = (Esec-Ei)/|df|^R, and guarded pow(|d|,-R) against
-			// overflow by falling back to the SECANT. For large R (Esec ~ Ei, e.g. R = 78, A = -1.7e278) the
-			// guard fired for |d| < ~1.1e-4 and the curve jumped between the secant (slope Esec) and the
-			// power form (slope Ei) at a fixed strain: a stress discontinuity of ~0.015 ksi in rule 3 that
-			// stalls Newton. The ratio form has no huge intermediates and underflows smoothly to 0.
-			double ratio=fabs(es-esi)/fabs(esf-esi);
-			double term=(Esec-Ei)*pow(ratio,R);
-			fc=fi+(es-esi)*(Ei+term);
-			Et=Ei+(R+1)*term;
-			if (!std::isfinite(fc) || !std::isfinite(Et))	{
+			fc=fi+(es-esi)*(Ei+A*pow(fabs(es-esi),R));
+			Et=Ei+A*(R+1)*pow(fabs(es-esi),R);
+			if (Et>1.797e308 || Et<-1.797e308 || !std::isfinite(fc) || !std::isfinite(Et))	{	// EASER patch: also NaN
 				fc=fi+Esec*(es-esi);
 				Et=Esec;
 			}
