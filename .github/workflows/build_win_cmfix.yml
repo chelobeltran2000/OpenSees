@@ -19,7 +19,7 @@ jobs:
       fail-fast: false
       matrix:
         python: ["3.10", "3.11", "3.12", "3.13"]
-        variant: ["res2"]
+        variant: ["res3"]
     steps:
       - name: OpenSees v3.8.0 (official repository)
         uses: actions/checkout@v4
@@ -40,6 +40,7 @@ jobs:
           grep -n "EASER" SRC/material/uniaxial/ConcreteCM.h
           grep -n "EASER patch" SRC/material/uniaxial/ConcreteCM.cpp
           grep -c "EASER fix 7" SRC/material/uniaxial/ConcreteCM.cpp
+          grep -c "EASER fix 8" SRC/material/uniaxial/ConcreteCM.cpp
       - name: Microsoft Visual Studio
         uses: ilammy/msvc-dev-cmd@v1
         with:
