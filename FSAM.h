@@ -72,6 +72,7 @@ public:
 	~FSAM();				  
 
 	double getRho(void);
+	double getRhoX(void) const { return roux; }   // EASER patch (E-SFI): cuantia horizontal para eps_x
 
 	int setTrialStrain(const Vector &v);
 	int setTrialStrain(const Vector &v, const Vector &r);
