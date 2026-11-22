@@ -44,13 +44,28 @@
 #include <MaterialResponse.h>
 #include <math.h>
 #include <float.h>
-#include <cmath>   // EASER patch: std::isfinite
+#include <cmath>
+#include <cstring>   // EASER opt: memcpy/memcmp   // EASER patch: std::isfinite
 
 // EASER patch: auxiliary members are never initialised in the original (see hacer_parche.py)
 #define EASER_ZERO_AUX xn=0.0; nn=0.0; xsp=0.0; xp=0.0; np=0.0; xcrk=0.0; y=0.0; z=0.0; eunn=0.0; funn=0.0; espln=0.0; Epln=0.0; Esecn=0.0; Esectest=0.0; Esectest10=0.0; Esectest13=0.0; delen=0.0; delfn=0.0; fnewn=0.0; Enewn=0.0; esren=0.0; fren=0.0; Eren=0.0; fnewstn=0.0; Enewstn=0.0; esrestn=0.0; frestn=0.0; Erestn=0.0; eunp=0.0; funp=0.0; esplp=0.0; Eplp=0.0; Esecp=0.0; delep=0.0; delfp=0.0; fnewp=0.0; Enewp=0.0; esrep=0.0; frep=0.0; Erep=0.0; fnewstp=0.0; Enewstp=0.0; esrestp=0.0; frestp=0.0; Erestp=0.0; esi=0.0; esi10=0.0; esi13=0.0; fi=0.0; fi10=0.0; fi13=0.0; Ei=0.0; Ei10=0.0; Ei13=0.0; esf=0.0; esf10=0.0; esf13=0.0; ff=0.0; ff10=0.0; ff13=0.0; Ef=0.0; Ef10=0.0; Ef13=0.0; R=0.0; R10=0.0; R13=0.0; A=0.0; A10=0.0; A13=0.0; fc=0.0; Et=0.0; fca=0.0; Eta=0.0; fcb=0.0; Etb=0.0; fa=0.0; fb=0.0;
-#define EASER_ZERO_COMMITTED fpcc=0.0; epcc=0.0; Ec=0.0; rc=0.0; xcrn=0.0; ft=0.0; et=0.0; rt=0.0; xcrp=0.0; Ceunn=0.0; Cfunn=0.0; Ceunp=0.0; Cfunp=0.0; Cer=0.0; Cfr=0.0; Cer0n=0.0; Cfr0n=0.0; Cer0p=0.0; Cfr0p=0.0; Ce0=0.0; Cea=0.0; Ceb=0.0; Ced=0.0; Cinc=0.0; Crule=0.0; Cstrain=0.0; Cstress=0.0; Ctangent=0.0; mon=0; Gap=0;
+#define EASER_ZERO_COMMITTED fpcc=0.0; epcc=0.0; Ec=0.0; rc=0.0; xcrn=0.0; ft=0.0; et=0.0; rt=0.0; xcrp=0.0; Ceunn=0.0; Cfunn=0.0; Ceunp=0.0; Cfunp=0.0; Cer=0.0; Cfr=0.0; Cer0n=0.0; Cfr0n=0.0; Cer0p=0.0; Cfr0p=0.0; Ce0=0.0; Cea=0.0; Ceb=0.0; Ced=0.0; Cinc=0.0; Crule=0.0; Cstrain=0.0; Cstress=0.0; Ctangent=0.0; mon=0; Gap=0; resf=0.0;
 // EASER patch: derived quantities of the committed history, recomputed at the start of every trial
 #define EASER_RECOMPUTE_DERIVED esplnf(Teunn,Tfunn); Eplnf(Teunn); delenf(Teunn); delfnf(Teunn,Tfunn); fnewnf(Teunn,Tfunn); Enewnf(Teunn,Tfunn); esrenf(Teunn); freErenf(Teunn); fnewstnf(Tfunn,delfn,Teunn,Ter0n,espln); Enewstnf(fnewstn,Tfr0n,Teunn,Ter0n); esrestnf(Teunn,delen,Ter0n,espln); freErestnf(Teunn,Tfunn,Ter0n); esplpf(Teunp,Tfunp,Te0,espln); Eplpf(Te0,Teunp); Esecpf(Te0,Teunp,Tfunp,espln); delepf(Teunp,Te0); delfpf(Tfunp,Teunp,Te0); fnewpf(Tfunp,Teunp,Te0); Enewpf(Teunp,Tfunp,Te0,espln); esrepf(Teunp,Te0); freErepf(Teunp,Te0); fnewstpf(Tfunp,delfp,Teunp,Ter0p,esplp,Te0); Enewstpf(fnewstp,Tfr0p,Teunp,Ter0p); esrestpf(Teunp,delep,Ter0p,esplp); freErestpf(Teunp,Tfunp,Ter0p,Te0,espln);
+// EASER patch (v6): auxiliary members are part of the committed state (saved/restored like Ceunn...)
+// EASER fix 9: Kolozsvari "Fix 1/Fix 2" (rules 10 and 13) replace the secant by the line Enewn*(e-espln). It ends at
+// (Teunn, fnewn), where rule 7 starts, only if Enewn = fnewn/(Teunn-espln); when Enewn is capped at Ec (fmin in Enewnf)
+// the line misses that point: a stress jump at Teunn (Newton 2-cycles between rules 10 and 7). Capped case only: the
+// line through (Teunn, fnewn) with slope Enewn, zero at Teunn-fnewn/Enewn. Otherwise the original expressions.
+#define EASER_CAPN (fnewn/(Teunn-espln) > Ec)
+#define EASER_EZN (EASER_CAPN ? Teunn-fnewn/Enewn : espln)
+#define EASER_FC10 (EASER_CAPN ? fnewn+Et*(Tstrain-Teunn) : Et*(Tstrain-espln))
+// EASER fix 10: capped case whose line would reach zero right of the rule start S (esplp for 10, Ted for 13):
+// keep the original secant (continuous at S and Teunn). Also used for the rule 11/12/15 target points.
+#define EASER_SEC(S) (EASER_CAPN && Teunn-fnewn/Enewn >= (S))
+#define EASER_INIT_OPT EASER_ras = 0; EASER_ran = 0; EASER_preok = 0; Ceann = 0.0; Teann = 0.0; Ceanp = 0.0; Teanp = 0.0;
+#define EASER_SAVE_AUX EASER_Caux[0]=xn; EASER_Caux[1]=nn; EASER_Caux[2]=xsp; EASER_Caux[3]=xp; EASER_Caux[4]=np; EASER_Caux[5]=xcrk; EASER_Caux[6]=y; EASER_Caux[7]=z; EASER_Caux[8]=eunn; EASER_Caux[9]=funn; EASER_Caux[10]=espln; EASER_Caux[11]=Epln; EASER_Caux[12]=Esecn; EASER_Caux[13]=Esectest; EASER_Caux[14]=Esectest10; EASER_Caux[15]=Esectest13; EASER_Caux[16]=delen; EASER_Caux[17]=delfn; EASER_Caux[18]=fnewn; EASER_Caux[19]=Enewn; EASER_Caux[20]=esren; EASER_Caux[21]=fren; EASER_Caux[22]=Eren; EASER_Caux[23]=fnewstn; EASER_Caux[24]=Enewstn; EASER_Caux[25]=esrestn; EASER_Caux[26]=frestn; EASER_Caux[27]=Erestn; EASER_Caux[28]=eunp; EASER_Caux[29]=funp; EASER_Caux[30]=esplp; EASER_Caux[31]=Eplp; EASER_Caux[32]=Esecp; EASER_Caux[33]=delep; EASER_Caux[34]=delfp; EASER_Caux[35]=fnewp; EASER_Caux[36]=Enewp; EASER_Caux[37]=esrep; EASER_Caux[38]=frep; EASER_Caux[39]=Erep; EASER_Caux[40]=fnewstp; EASER_Caux[41]=Enewstp; EASER_Caux[42]=esrestp; EASER_Caux[43]=frestp; EASER_Caux[44]=Erestp; EASER_Caux[45]=esi; EASER_Caux[46]=esi10; EASER_Caux[47]=esi13; EASER_Caux[48]=fi; EASER_Caux[49]=fi10; EASER_Caux[50]=fi13; EASER_Caux[51]=Ei; EASER_Caux[52]=Ei10; EASER_Caux[53]=Ei13; EASER_Caux[54]=esf; EASER_Caux[55]=esf10; EASER_Caux[56]=esf13; EASER_Caux[57]=ff; EASER_Caux[58]=ff10; EASER_Caux[59]=ff13; EASER_Caux[60]=Ef; EASER_Caux[61]=Ef10; EASER_Caux[62]=Ef13; EASER_Caux[63]=R; EASER_Caux[64]=R10; EASER_Caux[65]=R13; EASER_Caux[66]=A; EASER_Caux[67]=A10; EASER_Caux[68]=A13; EASER_Caux[69]=fc; EASER_Caux[70]=Et; EASER_Caux[71]=fca; EASER_Caux[72]=Eta; EASER_Caux[73]=fcb; EASER_Caux[74]=Etb; EASER_Caux[75]=fa; EASER_Caux[76]=fb;
+#define EASER_RESTORE_AUX xn=EASER_Caux[0]; nn=EASER_Caux[1]; xsp=EASER_Caux[2]; xp=EASER_Caux[3]; np=EASER_Caux[4]; xcrk=EASER_Caux[5]; y=EASER_Caux[6]; z=EASER_Caux[7]; eunn=EASER_Caux[8]; funn=EASER_Caux[9]; espln=EASER_Caux[10]; Epln=EASER_Caux[11]; Esecn=EASER_Caux[12]; Esectest=EASER_Caux[13]; Esectest10=EASER_Caux[14]; Esectest13=EASER_Caux[15]; delen=EASER_Caux[16]; delfn=EASER_Caux[17]; fnewn=EASER_Caux[18]; Enewn=EASER_Caux[19]; esren=EASER_Caux[20]; fren=EASER_Caux[21]; Eren=EASER_Caux[22]; fnewstn=EASER_Caux[23]; Enewstn=EASER_Caux[24]; esrestn=EASER_Caux[25]; frestn=EASER_Caux[26]; Erestn=EASER_Caux[27]; eunp=EASER_Caux[28]; funp=EASER_Caux[29]; esplp=EASER_Caux[30]; Eplp=EASER_Caux[31]; Esecp=EASER_Caux[32]; delep=EASER_Caux[33]; delfp=EASER_Caux[34]; fnewp=EASER_Caux[35]; Enewp=EASER_Caux[36]; esrep=EASER_Caux[37]; frep=EASER_Caux[38]; Erep=EASER_Caux[39]; fnewstp=EASER_Caux[40]; Enewstp=EASER_Caux[41]; esrestp=EASER_Caux[42]; frestp=EASER_Caux[43]; Erestp=EASER_Caux[44]; esi=EASER_Caux[45]; esi10=EASER_Caux[46]; esi13=EASER_Caux[47]; fi=EASER_Caux[48]; fi10=EASER_Caux[49]; fi13=EASER_Caux[50]; Ei=EASER_Caux[51]; Ei10=EASER_Caux[52]; Ei13=EASER_Caux[53]; esf=EASER_Caux[54]; esf10=EASER_Caux[55]; esf13=EASER_Caux[56]; ff=EASER_Caux[57]; ff10=EASER_Caux[58]; ff13=EASER_Caux[59]; Ef=EASER_Caux[60]; Ef10=EASER_Caux[61]; Ef13=EASER_Caux[62]; R=EASER_Caux[63]; R10=EASER_Caux[64]; R13=EASER_Caux[65]; A=EASER_Caux[66]; A10=EASER_Caux[67]; A13=EASER_Caux[68]; fc=EASER_Caux[69]; Et=EASER_Caux[70]; fca=EASER_Caux[71]; Eta=EASER_Caux[72]; fcb=EASER_Caux[73]; Etb=EASER_Caux[74]; fa=EASER_Caux[75]; fb=EASER_Caux[76];
 
 #include <elementAPI.h>
 
@@ -71,8 +86,8 @@ void *OPS_ConcreteCM(void)
   int numArgs = OPS_GetNumRemainingInputArgs();
 
   // Parse the script for material parameters
-  if (numArgs != 10 && numArgs !=  11 && numArgs != 12) {
-    opserr << "Incorrect # args Want: uniaxialMaterial ConcreteCM tag? fpcc? epcc? Ec? rc? xcrn? ft? et? rt? xcrp? <-GapClose gap?>" << endln;
+  if (numArgs != 10 && numArgs !=  11 && numArgs != 12 && numArgs != 14) {
+    opserr << "Incorrect # args Want: uniaxialMaterial ConcreteCM tag? fpcc? epcc? Ec? rc? xcrn? ft? et? rt? xcrp? <-GapClose gap?> <-Residual f?>" << endln;
     return 0;
   }
   
@@ -80,6 +95,7 @@ void *OPS_ConcreteCM(void)
   double dData[9];
   int mon = 0;
   int gap = 0;
+  double resf = 0.0;
   
   int numData = 1;
   if (OPS_GetIntInput(&numData, iData) != 0) {
@@ -117,6 +133,7 @@ void *OPS_ConcreteCM(void)
 
     numData = 1;
     
+    for (int k = 10; k < numArgs; k += 2) {
     const char *str = OPS_GetString();
     // OPS_GetStringCopy(&str);
     if (strcmp(str, "-GapClose") == 0) {
@@ -124,9 +141,15 @@ void *OPS_ConcreteCM(void)
 		opserr << "Invalid $gap parameter for uniaxialMaterial ConcreteCM with tag  " << iData[0] << endln;
 		return 0;
       }
+    } else if (strcmp(str, "-Residual") == 0) {	// EASER: residual stress after crushing, fraction of fpcc
+      if (OPS_GetDoubleInput(&numData, &resf) != 0 || resf < 0.0 || resf >= 1.0) {
+		opserr << "Invalid $f parameter (0 <= f < 1) for -Residual, uniaxialMaterial ConcreteCM with tag  " << iData[0] << endln;
+		return 0;
+      }
     } else {
-      opserr << "Invalid input parameter for uniaxialMaterial ConcreteCM with tag  " << iData[0] << ", want: -GapClose"<< endln;
+      opserr << "Invalid input parameter for uniaxialMaterial ConcreteCM with tag  " << iData[0] << ", want: -GapClose or -Residual"<< endln;
       return 0;
+    }
     }
     
     // delete [] str;
@@ -136,7 +159,7 @@ void *OPS_ConcreteCM(void)
       return 0;
     }
     
-    theMaterial = new ConcreteCM(iData[0], dData[0], dData[1], dData[2], dData[3], dData[4], dData[5], dData[6], dData[7], dData[8], mon, gap);
+    theMaterial = new ConcreteCM(iData[0], dData[0], dData[1], dData[2], dData[3], dData[4], dData[5], dData[6], dData[7], dData[8], mon, gap, resf);
   }
   
   return theMaterial;
@@ -144,9 +167,9 @@ void *OPS_ConcreteCM(void)
 
 // Constructor for optional gradual gap closure: mon=0 (default), Gap=0 or 1 (optional user-generated input, see Eplpf member function)
 ConcreteCM::ConcreteCM
-(int tag, double FPCC, double EPCC, double EC, double RC, double XCRN, double FT, double ET, double RT, double XCRP, int MON, int GAP)
+(int tag, double FPCC, double EPCC, double EC, double RC, double XCRN, double FT, double ET, double RT, double XCRP, int MON, int GAP, double RESF)
 :UniaxialMaterial(tag, MAT_TAG_ConcreteCM),
-fpcc(FPCC), epcc(EPCC), Ec(EC), rc(RC), xcrn(XCRN), ft(FT), et(ET), rt(RT), xcrp(XCRP), mon(MON), Gap(GAP),// input
+fpcc(FPCC), epcc(EPCC), Ec(EC), rc(RC), xcrn(XCRN), ft(FT), et(ET), rt(RT), xcrp(XCRP), mon(MON), Gap(GAP), resf(RESF),// input
 Ceunn(0.0), Cfunn(0.0), Ceunp(0.0), Cfunp(0.0), Cer(0.0), Cfr(0.0), Cer0n(0.0), // history and state variables
 Cfr0n(0.0), Cer0p(0.0), Cfr0p(0.0), Ce0(0.0), Cea(0.0), Ceb(0.0), Ced(0.0), Cinc(0.0),
 Crule(0.0), Cstrain(0.0), Cstress(0.0), Ctangent(0.0)
@@ -155,6 +178,8 @@ Crule(0.0), Cstrain(0.0), Cstress(0.0), Ctangent(0.0)
 
 	// EASER patch: zero auxiliary members before first use
 	EASER_ZERO_AUX
+	EASER_INIT_OPT
+	EASER_SAVE_AUX
 	// Set trial values
 	this->revertToLastCommit();
 
@@ -166,7 +191,7 @@ Crule(0.0), Cstrain(0.0), Cstress(0.0), Ctangent(0.0)
 }
 
 ConcreteCM::ConcreteCM():UniaxialMaterial(0, MAT_TAG_ConcreteCM),
-fpcc(0.0), epcc(0.0), Ec(0.0), rc(0.0), xcrn(0.0), ft(0.0), et(0.0), rt(0.0), xcrp(0.0), mon(0),Gap(0),// input
+fpcc(0.0), epcc(0.0), Ec(0.0), rc(0.0), xcrn(0.0), ft(0.0), et(0.0), rt(0.0), xcrp(0.0), mon(0),Gap(0), resf(0.0),// input
 Ceunn(0.0), Cfunn(0.0), Ceunp(0.0), Cfunp(0.0), Cer(0.0), Cfr(0.0), Cer0n(0.0), // history and state variables
 Cfr0n(0.0), Cer0p(0.0), Cfr0p(0.0), Ce0(0.0), Cea(0.0), Ceb(0.0), Ced(0.0), Cinc(0.0), 
 Crule(0.0), Cstrain(0.0), Cstress(0.0), Ctangent(0.0) 
@@ -174,6 +199,8 @@ Crule(0.0), Cstrain(0.0), Cstress(0.0), Ctangent(0.0)
 {
 	// EASER patch: zero auxiliary members before first use
 	EASER_ZERO_AUX
+	EASER_INIT_OPT
+	EASER_SAVE_AUX
 	// Set trial values
 	this->revertToLastCommit();
 
@@ -188,6 +215,8 @@ ConcreteCM::ConcreteCM(int tag)
 {
 	// EASER patch: zero auxiliary members before first use
 	EASER_ZERO_AUX
+	EASER_INIT_OPT
+	EASER_SAVE_AUX
 	// EASER patch: zero inputs and committed state too (getCopy overwrites them)
 	EASER_ZERO_COMMITTED
 	// Set trial values
@@ -211,9 +240,6 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 	// Set trial strain
 	this->revertToLastCommit();
 	Tstrain = strain;
-	// EASER patch: auxiliary values are used across calls without being recomputed (Fix 1/2 blocks,
-	// rules 7/8/9/13 continuing): recompute them from the committed history before every trial
-	EASER_RECOMPUTE_DERIVED
 
 	if (mon == 1) { // switch to monotonic material ONLY (invoked in FSAM)
 
@@ -246,6 +272,8 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 		Tea=0.0;
 		Teb=0.0;
 		Ted=0.0;
+		Teann=0.0;
+		Teanp=0.0;
 
 	}
 
@@ -279,6 +307,8 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 		Tea=0.0;
 		Teb=0.0;
 		Ted=0.0;
+		Teann=0.0;
+		Teanp=0.0;
 	}
 
 	else	{	//cyclic
@@ -308,34 +338,46 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 		Teb=Ceb;
 		Ted=Ced;
 		Trule=Crule;
+		Teann=Ceann;
+		Teanp=Ceanp;
 
-		esplnf(Teunn,Tfunn);
-		Eplnf(Teunn);
-		Esecnf(Teunn,Tfunn);
-		delenf(Teunn);
-		delfnf(Teunn,Tfunn);
-		fnewnf(Teunn,Tfunn);
-		Enewnf(Teunn,Tfunn);
-		esrenf(Teunn);
-		freErenf(Teunn);
-		fnewstnf(Tfunn,delfn,Teunn,Ter0n,espln);
-		Enewstnf(fnewstn,Tfr0n,Teunn,Ter0n);
-		esrestnf(Teunn,delen,Ter0n,espln);   
-		freErestnf(Teunn,Tfunn,Ter0n);
-
-		esplpf(Teunp,Tfunp,Te0,espln);
-		Eplpf(Te0,Teunp);
-		Esecpf(Te0,Teunp,Tfunp,espln);  
-		delepf(Teunp,Te0);
-		delfpf(Tfunp,Teunp,Te0); 
-		fnewpf(Tfunp,Teunp,Te0);
-		Enewpf(Teunp,Tfunp,Te0,espln);
-		esrepf(Teunp,Te0);
-		freErepf(Teunp,Te0);
-		fnewstpf(Tfunp,delfp,Teunp,Ter0p,esplp,Te0);
-		Enewstpf(fnewstp,Tfr0p,Teunp,Ter0p);
-		esrestpf(Teunp,delep,Ter0p,esplp);
-		freErestpf(Teunp,Tfunp,Ter0p,Te0,espln);
+		// EASER opt C: the block below depends only on these committed-history values; reuse its results
+		// when they are bit-for-bit those of the last evaluation
+		double easer_k[11] = {Teunn, Tfunn, Ter0n, Tfr0n, Teunp, Tfunp, Te0, Ter0p, Tfr0p, Teann, Teanp};
+		if (EASER_preok && memcmp(easer_k, EASER_prek, sizeof(easer_k)) == 0)	{
+			Esecn=EASER_prev[0]; espln=EASER_prev[1]; Epln=EASER_prev[2]; delen=EASER_prev[3]; delfn=EASER_prev[4]; fnewn=EASER_prev[5]; Enewn=EASER_prev[6]; esren=EASER_prev[7]; xn=EASER_prev[8]; nn=EASER_prev[9]; y=EASER_prev[10]; z=EASER_prev[11]; xsp=EASER_prev[12]; fren=EASER_prev[13]; Eren=EASER_prev[14]; fnewstn=EASER_prev[15]; Enewstn=EASER_prev[16]; esrestn=EASER_prev[17]; frestn=EASER_prev[18]; Erestn=EASER_prev[19]; Esecp=EASER_prev[20]; esplp=EASER_prev[21]; Eplp=EASER_prev[22]; delep=EASER_prev[23]; delfp=EASER_prev[24]; fnewp=EASER_prev[25]; Enewp=EASER_prev[26]; esrep=EASER_prev[27]; xp=EASER_prev[28]; np=EASER_prev[29]; xcrk=EASER_prev[30]; frep=EASER_prev[31]; Erep=EASER_prev[32]; fnewstp=EASER_prev[33]; Enewstp=EASER_prev[34]; esrestp=EASER_prev[35]; frestp=EASER_prev[36]; Erestp=EASER_prev[37];
+		}
+		else	{
+			esplnf(Teunn,Tfunn);
+			Eplnf(Teunn);
+			Esecnf(Teunn,Tfunn);
+			delenf(Teunn);
+			delfnf(Teunn,Tfunn);
+			fnewnf(Teunn,Tfunn);
+			Enewnf(Teunn,Tfunn);
+			esrenf(Teunn);
+			freErenf(Teunn);
+			fnewstnf(Tfunn,delfn,Teunn,Ter0n,espln);
+			Enewstnf(fnewstn,Tfr0n,Teunn,Ter0n);
+			esrestnf(Teunn,delen,Ter0n,espln);   
+			freErestnf(Teunn,Tfunn,Ter0n);
+	
+			esplpf(Teunp,Tfunp,Te0,espln);
+			Eplpf(Te0,Teunp);
+			Esecpf(Te0,Teunp,Tfunp,espln);  
+			delepf(Teunp,Te0);
+			delfpf(Tfunp,Teunp,Te0); 
+			fnewpf(Tfunp,Teunp,Te0);
+			Enewpf(Teunp,Tfunp,Te0,espln);
+			esrepf(Teunp,Te0);
+			freErepf(Teunp,Te0);
+			fnewstpf(Tfunp,delfp,Teunp,Ter0p,esplp,Te0);
+			Enewstpf(fnewstp,Tfr0p,Teunp,Ter0p);
+			esrestpf(Teunp,delep,Ter0p,esplp);
+			freErestpf(Teunp,Tfunp,Ter0p,Te0,espln);
+			EASER_prev[0]=Esecn; EASER_prev[1]=espln; EASER_prev[2]=Epln; EASER_prev[3]=delen; EASER_prev[4]=delfn; EASER_prev[5]=fnewn; EASER_prev[6]=Enewn; EASER_prev[7]=esren; EASER_prev[8]=xn; EASER_prev[9]=nn; EASER_prev[10]=y; EASER_prev[11]=z; EASER_prev[12]=xsp; EASER_prev[13]=fren; EASER_prev[14]=Eren; EASER_prev[15]=fnewstn; EASER_prev[16]=Enewstn; EASER_prev[17]=esrestn; EASER_prev[18]=frestn; EASER_prev[19]=Erestn; EASER_prev[20]=Esecp; EASER_prev[21]=esplp; EASER_prev[22]=Eplp; EASER_prev[23]=delep; EASER_prev[24]=delfp; EASER_prev[25]=fnewp; EASER_prev[26]=Enewp; EASER_prev[27]=esrep; EASER_prev[28]=xp; EASER_prev[29]=np; EASER_prev[30]=xcrk; EASER_prev[31]=frep; EASER_prev[32]=Erep; EASER_prev[33]=fnewstp; EASER_prev[34]=Enewstp; EASER_prev[35]=esrestp; EASER_prev[36]=frestp; EASER_prev[37]=Erestp;
+			memcpy(EASER_prek, easer_k, sizeof(easer_k)); EASER_preok = 1;
+		}
 
 		// [1]
 		if (Cinc==-1.0)	{
@@ -344,6 +386,8 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 
 				if (Crule==1.0 || Crule==5.0 || Crule==7.0)	{	// Rules [3,9,8,2,6]
 
+					// EASER fix 8: on rule 7 the point is below the envelope; anchor the return point to its target
+					Teann = (Crule==7.0) ? esren : Cstrain;
 					Teunn=Cstrain;
 					Tfunn=Cstress;
 
@@ -1190,8 +1234,9 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 						}				  
 					}	// if (Cstrain>=Teunn)
 
-					else	{	// if (Cstrain<Teunn)		// Reversal from transition 77 by Rules [3,9,8,2,6] 
+					else	{	// if (Cstrain<Teunn)		// Reversal from transition 77 by Rules [3,9,8,2,6]
 
+						Teann=esrestn;	// EASER fix 8: below the envelope; anchor to the target of this 77 curve
 						Teunn=Cstrain;				  
 						Tfunn=Cstress;
 
@@ -1280,14 +1325,14 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 
 						// Fix 2
 						Esectest = (ff-fi)/(esf-esi);
-						if (Et==Esectest) {
-							if (Tstrain>=espln) {
+						if (Et==Esectest && !EASER_SEC(esi)) {
+							if (Tstrain>=EASER_EZN) {
 								fc=0;
 								Et=0;
 								Trule=10.0;
 							} else {
 								Et=Enewn;
-								fc=Et*(Tstrain-espln);
+								fc=EASER_FC10;
 								Trule=10.0;
 							}
 						}
@@ -1360,14 +1405,14 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 						// Fix 1
 						Esectest = (ff-fi) / (esf-esi);
 
-						if (Et==Esectest) { 
-							if (Tstrain>=espln) { 
+						if (Et==Esectest && !EASER_SEC(esi)) { 
+							if (Tstrain>=EASER_EZN) { 
 								fc=0.0;
 								Et=0.0;
 								Trule=13.0;
 							} else { 
 								Et=Enewn;
-								fc=Et*(Tstrain-espln);
+								fc=EASER_FC10;
 								Trule=13.0;
 							} 
 						} 
@@ -1450,14 +1495,14 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 
 								// Fix 2 
 								Esectest=(ff-fi)/(esf-esi);
-								if (Et==Esectest) {
-									if (Tstrain>=espln) {
+								if (Et==Esectest && !EASER_SEC(esi)) {
+									if (Tstrain>=EASER_EZN) {
 										fc=0;
 										Et=0;
 										Trule=10.0;
 									} else {
 										Et=Enewn;
-										fc=Et*(Tstrain-espln);
+										fc=EASER_FC10;
 										Trule=10.0;
 									}
 								}
@@ -1510,13 +1555,13 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 
 								// Fix 2 
 								Esectest10 = (ff10-fi10)/(esf10-esi10);
-								if (Etb==Esectest10) {
-									if (Teb>=espln) {
+								if (Etb==Esectest10 && !EASER_SEC(esi10)) {
+									if (Teb>=EASER_EZN) {
 										fcb=0;
 										Etb=0;
 									} else {
 										Etb=Enewn;
-										fcb=Etb*(Teb-espln);
+										fcb=(EASER_CAPN ? fnewn+Etb*(Teb-Teunn) : Etb*(Teb-espln));
 									}
 								}
 								// Fix 2
@@ -1547,14 +1592,14 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 
 								// Fix 2  
 								Esectest = (ff-fi)/(esf-esi);
-								if (Et==Esectest) {
-									if (Tstrain>=espln) {
+								if (Et==Esectest && !EASER_SEC(esi)) {
+									if (Tstrain>=EASER_EZN) {
 										fc=0;
 										Et=0;
 										Trule=10.0;
 									} else {
 										Et=Enewn;
-										fc=Et*(Tstrain-espln);
+										fc=EASER_FC10;
 										Trule=10.0;
 									}
 								}
@@ -1764,13 +1809,13 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 						// Fix 1 
 						Esectest13=(ff13-fi13)/(esf13-esi13); // KK
 
-						if (Eta==Esectest13) { 
-							if (Tea>=espln) { 
+						if (Eta==Esectest13 && !EASER_SEC(esi13)) { 
+							if (Tea>=EASER_EZN) { 
 								fca=0;
 								Eta=0;
 							} else { 
 								Eta=Enewn;
-								fca=Eta*(Tea-espln);	// EASER patch (v5b): Eta (= Enewn, the slope of the line just chosen), not the secant Et
+								fca=(EASER_CAPN ? fnewn+Eta*(Tea-Teunn) : Eta*(Tea-espln));	// EASER patch (v5b): Eta (= Enewn, the slope of the line just chosen), not the secant Et
 							} 
 						} 
 						// Fix 1
@@ -1803,8 +1848,8 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 						// Fix 1 
 						Esectest=(ff-fi)/(esf-esi);
 
-						if (Et==Esectest) { 
-							if (Tstrain>=espln) { 
+						if (Et==Esectest && !EASER_SEC(esi)) { 
+							if (Tstrain>=EASER_EZN) { 
 								fc=0;
 								Et=0;
 								Trule=13.0;
@@ -1812,7 +1857,7 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 							} else { 
 
 								Et=Enewn;
-								fc=Et*(Tstrain-espln);
+								fc=EASER_FC10;
 								Trule=13.0;
 							} 
 						} 
@@ -1851,9 +1896,10 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 			{    // Starts reversal from positive direction to negative direction
 
 				if ( fabs(Cstress) == 0.0) 
-				{     // Gap Model 
+				{     // Gap Model
 
 					Teunp=Cstrain;
+					Teanp=Teunp;	// EASER fix 8
 					Tfunp=Cstress;
 
 					fcEtnf(Teunn);
@@ -1881,13 +1927,13 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 						Esectest=(ff-fi)/(esf-esi);
 						if ( Et==Esectest ) 
 						{ 
-							if ( Tstrain>=espln ) { 
+							if ( Tstrain>=EASER_EZN ) { 
 								fc=0;
 								Et=0;
 								Trule=13.0;
 							} else { 
 								Et=Enewn;
-								fc=Et*(Tstrain-espln);
+								fc=EASER_FC10;
 								Trule=13.0;
 							} 
 						} 
@@ -1916,10 +1962,16 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 				else if (Crule==2.0 || Crule==8.0) 
 				{   // Starts reversal from non-cracked envelope (Rule 2) or Rule 8 [Rules 4,10,7,1,5]
 
+					// EASER fix 8: on rule 8 the point is below the envelope; anchor the return point to its target
+					Teanp = (Crule==8.0) ? esrep : Cstrain;
 					Teunp=Cstrain;
 
 					fcEtpf(Teunp,Te0);	// need Tfunp only from fcEtpf
 					Tfunp=Tstress;
+					// EASER fix 7 (2026-11-02): on transition 8 the point is below the envelope; unload from the actual
+					// point (as the compression side does with Tfunn=Cstress). With the envelope value the unloading curve
+					// started up to 0.35 % above the current stress: a jump with tangent ~1e2 Ec that stalls Newton.
+					if (Crule==8.0) Tfunp=Cstress;
 
 					Esecpf(Te0,Teunp,Tfunp,espln);
 
@@ -1949,14 +2001,14 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 
 						// Fix 2  
 						Esectest=(ff-fi)/(esf-esi);
-						if (Et==Esectest) {
-							if (Tstrain>=espln) {
+						if (Et==Esectest && !EASER_SEC(esi)) {
+							if (Tstrain>=EASER_EZN) {
 								fc=0;
 								Et=0;
 								Trule=10.0;
 							} else {
 								Et=Enewn;
-								fc=Et*(Tstrain-espln);
+								fc=EASER_FC10;
 								Trule=10.0;
 							}
 						}	
@@ -2044,14 +2096,14 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 							// Fix 2  
 							Esectest=(ff-fi)/(esf-esi);
 
-							if (Et==Esectest) {
-								if (Tstrain>=espln) {
+							if (Et==Esectest && !EASER_SEC(esi)) {
+								if (Tstrain>=EASER_EZN) {
 									fc=0;
 									Et=0;
 									Trule=10.0;
 								} else {
 									Et=Enewn;
-									fc=Et*(Tstrain-espln);
+									fc=EASER_FC10;
 									Trule=10.0;
 								}
 							}
@@ -2102,13 +2154,13 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 
 							// Fix 2 
 							Esectest10=(ff10-fi10)/(esf10-esi10); 
-							if (Etb==Esectest10) {
-								if (Teb>=espln) {
+							if (Etb==Esectest10 && !EASER_SEC(esi10)) {
+								if (Teb>=EASER_EZN) {
 									fcb=0;
 									Etb=0;
 								} else {
 									Etb=Enewn;
-									fcb=Etb*(Teb-espln);
+									fcb=(EASER_CAPN ? fnewn+Etb*(Teb-Teunn) : Etb*(Teb-espln));
 								}
 							}
 							// Fix 2
@@ -2139,14 +2191,14 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 
 							// Fix 2  
 							Esectest = (ff-fi)/(esf-esi);
-							if (Et==Esectest) {
-								if (Tstrain>=espln) {
+							if (Et==Esectest && !EASER_SEC(esi)) {
+								if (Tstrain>=EASER_EZN) {
 									fc=0;
 									Et=0;
 									Trule=10.0;
 								} else {
 									Et=Enewn;
-									fc=Et*(Tstrain-espln);
+									fc=EASER_FC10;
 									Trule=10.0;
 								}
 							}	
@@ -2306,14 +2358,14 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 
 								// Fix 2  
 								Esectest=(ff-fi)/(esf-esi);
-								if (Et==Esectest) {
-									if (Tstrain>=espln) {
+								if (Et==Esectest && !EASER_SEC(esi)) {
+									if (Tstrain>=EASER_EZN) {
 										fc=0;
 										Et=0;
 										Trule=10.0;
 									} else {
 										Et=Enewn;
-										fc=Et*(Tstrain-espln);
+										fc=EASER_FC10;
 										Trule=10.0;
 									}
 								}
@@ -2365,13 +2417,13 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 
 								// Fix 2 
 								Esectest10 = (ff10-fi10)/(esf10-esi10);
-								if (Etb==Esectest10) {
-									if (Teb>=espln) {
+								if (Etb==Esectest10 && !EASER_SEC(esi10)) {
+									if (Teb>=EASER_EZN) {
 										fcb=0;
 										Etb=0;
 									} else {
 										Etb=Enewn;
-										fcb=Etb*(Teb-espln);
+										fcb=(EASER_CAPN ? fnewn+Etb*(Teb-Teunn) : Etb*(Teb-espln));
 									}
 								}
 								// Fix 2
@@ -2402,14 +2454,14 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 
 								// Fix 2 
 								Esectest = (ff-fi)/(esf-esi);
-								if (Et==Esectest) {
-									if (Tstrain>=espln) {
+								if (Et==Esectest && !EASER_SEC(esi)) {
+									if (Tstrain>=EASER_EZN) {
 										fc=0;
 										Et=0;
 										Trule=10.0;
 									} else { 
 										Et=Enewn;
-										fc=Et*(Tstrain-espln);
+										fc=EASER_FC10;
 										Trule=10.0;
 									}
 								}
@@ -2616,13 +2668,13 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 						// Fix 1 
 						Esectest13=(ff13-fi13)/(esf13-esi13);
 
-						if (Eta==Esectest13) { 
-							if (Tea>=espln) { 
+						if (Eta==Esectest13 && !EASER_SEC(esi13)) { 
+							if (Tea>=EASER_EZN) { 
 								fca=0;
 								Eta=0;
 							} else { 
 								Eta=Enewn;
-								fca=Eta*(Tea-espln);	// EASER patch (v5b): Eta (= Enewn, the slope of the line just chosen), not the secant Et
+								fca=(EASER_CAPN ? fnewn+Eta*(Tea-Teunn) : Eta*(Tea-espln));	// EASER patch (v5b): Eta (= Enewn, the slope of the line just chosen), not the secant Et
 							} 
 						} 
 						//Fix 1
@@ -2653,14 +2705,14 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 
 						// Fix 1  
 						Esectest=(ff-fi)/(esf-esi);
-						if (Et==Esectest) { 
-							if (Tstrain>=espln) { 
+						if (Et==Esectest && !EASER_SEC(esi)) { 
+							if (Tstrain>=EASER_EZN) { 
 								fc=0;
 								Et=0;
 								Trule=13.0;
 							} else { 
 								Et=Enewn;
-								fc=Et*(Tstrain-espln);
+								fc=EASER_FC10;
 								Trule=13.0;
 							} 
 						} 
@@ -2778,14 +2830,14 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 
 								// Fix 2 
 								Esectest = (ff-fi)/(esf-esi);
-								if (Et==Esectest) {
-									if (Tstrain>=espln) {
+								if (Et==Esectest && !EASER_SEC(esi)) {
+									if (Tstrain>=EASER_EZN) {
 										fc=0;
 										Et=0;
 										Trule=10.0;
 									} else {
 										Et=Enewn;
-										fc=Et*(Tstrain-espln);
+										fc=EASER_FC10;
 										Trule=10.0;
 									}
 								}
@@ -2836,13 +2888,13 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 
 								// Fix 2
 								Esectest10 = (ff10-fi10)/(esf10-esi10);
-								if (Etb==Esectest10) {
-									if (Teb>=espln) {
+								if (Etb==Esectest10 && !EASER_SEC(esi10)) {
+									if (Teb>=EASER_EZN) {
 										fcb=0;
 										Etb=0;
 									} else {
 										Etb=Enewn;
-										fcb=Etb*(Teb-espln);
+										fcb=(EASER_CAPN ? fnewn+Etb*(Teb-Teunn) : Etb*(Teb-espln));
 									}
 								}
 								// Fix 2
@@ -2873,14 +2925,14 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 
 								// Fix 2 
 								Esectest = (ff-fi)/(esf-esi);
-								if (Et==Esectest) {
-									if (Tstrain>=espln) {
+								if (Et==Esectest && !EASER_SEC(esi)) {
+									if (Tstrain>=EASER_EZN) {
 										fc=0;
 										Et=0;
 										Trule=10.0;
 									} else {
 										Et=Enewn;
-										fc=Et*(Tstrain-espln);
+										fc=EASER_FC10;
 										Trule=10.0;
 									}
 								}
@@ -2981,11 +3033,13 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 						}				  
 					}	// if (Cstrain<=Teunp)
 
-					else	{	// if (Cstrain>Teunp)		// Reversal from transition 88 by Rules [4,10,7,1,5] 
+					else	{	// if (Cstrain>Teunp)		// Reversal from transition 88 by Rules [4,10,7,1,5]
 
+						Teanp=esrestp;	// EASER fix 8: below the envelope; anchor to the target of this 88 curve
 						Teunp=Cstrain;				  
 						fcEtpf(Teunp,Te0);
 						Tfunp=Tstress;
+						Tfunp=Cstress;	// EASER fix 7: unload from the actual point on transition 88 (see Rule 8 above)
 
 						esplpf(Teunp,Tfunp,Te0,espln);
 						Eplpf(Te0,Teunp);
@@ -3013,14 +3067,14 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 
 							// Fix 2 
 							Esectest = (ff-fi)/(esf-esi);
-							if (Et==Esectest) {
-								if (Tstrain>=espln) {
+							if (Et==Esectest && !EASER_SEC(esi)) {
+								if (Tstrain>=EASER_EZN) {
 									fc=0;
 									Et=0;
 									Trule=10.0;
 								} else {
 									Et=Enewn;
-									fc=Et*(Tstrain-espln);
+									fc=EASER_FC10;
 									Trule=10.0;
 								}
 							}
@@ -3473,7 +3527,7 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 		nn=fabs(Ec*epcc/fpcc);
 		yf(xcrn,nn,rc);
 		zf(xcrn,nn,rc);
-		xsp=fabs(xcrn-y/(nn*z));
+		xsp = (resf > 0.0) ? 1.0e300 : fabs(xcrn-y/(nn*z)); // EASER: with a residual there is no zero-stress point
 
 		if (xn<=xsp) {
 			r1f(xn,nn,rc);
@@ -3602,7 +3656,7 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 		nn=fabs(Ec*epcc/fpcc);
 		yf(xcrn,nn,rc);     
 		zf(xcrn,nn,rc);     
-		xsp=fabs(xcrn-y/(nn*z));
+		xsp = (resf > 0.0) ? 1.0e300 : fabs(xcrn-y/(nn*z)); // EASER: with a residual there is no zero-stress point
 
 		if (xn<=xsp) {
 			if (xn<xcrn) {
@@ -3616,6 +3670,7 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 				zf(xcrn,nn,rc);
 				fren=fpcc*(y+nn*z*(xn-xcrn));
 				Eren=Ec*z;
+				if (resf > 0.0 && y+nn*z*(xn-xcrn) < resf) {fren=resf*fpcc; Eren=0.0;}
 			}
 		}
 		else {
@@ -3636,7 +3691,10 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 
 	void ConcreteCM::esrestnf(double eunn, double delen, double er0n, double espln)
 	{
-		esrestn=eunn+delen*(eunn-er0n)/(eunn-espln);
+		// EASER fix 8: measured from the envelope anchor (Teann == eunn, bit for bit, when unloading started on the
+		// envelope). From a point below it the original put the return point delen*ratio past eunn and on the envelope:
+		// a secant of up to 1e5 Ec for short reloadings (the gap to the envelope does not shrink with the ratio).
+		esrestn=Teann+delen*(eunn-er0n)/(eunn-espln);
 	}
 
 	void ConcreteCM::freErestnf(double eunn, double funn, double er0n)
@@ -3649,7 +3707,7 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 		nn=fabs(Ec*epcc/fpcc);
 		yf(xcrn,nn,rc);
 		zf(xcrn,nn,rc);
-		xsp=fabs(xcrn-y/(nn*z));
+		xsp = (resf > 0.0) ? 1.0e300 : fabs(xcrn-y/(nn*z)); // EASER: with a residual there is no zero-stress point
 
 		if (xn<=xsp) {	
 			if (xn<xcrn) {
@@ -3663,6 +3721,7 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 				zf(xcrn,nn,rc);
 				frestn=fpcc*(y+nn*z*(xn-xcrn));
 				Erestn=Ec*z;
+				if (resf > 0.0 && y+nn*z*(xn-xcrn) < resf) {frestn=resf*fpcc; Erestn=0.0;}
 			}
 		}
 		else {
@@ -3775,7 +3834,7 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 
 	void ConcreteCM::esrestpf(double eunp, double delep, double er0p, double esplp)
 	{
-		esrestp=eunp+delep*(eunp-er0p)/(eunp-esplp);
+		esrestp=Teanp+delep*(eunp-er0p)/(eunp-esplp);	// EASER fix 8 (see esrestnf)
 	}
 
 	void ConcreteCM::freErestpf(double eunp, double funp, double er0p, double e0, double espln)
@@ -3841,6 +3900,7 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 
 		Te0=espln+dele0-xup*et;
 		Teunp=xup*et+Te0;
+		Teanp=Teunp;	// EASER fix 8: on the tension envelope
 		fcEtpf(Teunp,Te0);
 		Tfunp=Tstress;
 
@@ -3860,6 +3920,7 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 			zf(xcrn,n,r);
 			Tstress=fpcc*(y+n*z*(x-xcrn));
 			Ttangent=Ec*z;
+			if (resf > 0.0 && y+n*z*(x-xcrn) < resf) {Tstress=resf*fpcc; Ttangent=0.0;}
 		}
 	}
 
@@ -4074,7 +4135,21 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 		Teb=ea-fa/Esecn;
 	}
 
+	// EASER opt E: RAf (A and R of a transition curve) depends only on its 6 arguments; the last 2 results are
+	// remembered (key = their bits). The original body is easer_RAf0, unchanged.
 	void ConcreteCM::RAf(double esi, double fi, double Ei, double esf, double ff, double Ef)
+	{
+		double a[6] = {esi, fi, Ei, esf, ff, Ef};
+		unsigned long long k[6];
+		memcpy(k, a, sizeof(k));
+		for (int s = 0; s < EASER_ran; s++)
+			if (memcmp(EASER_rak[s], k, sizeof(k)) == 0) { R = EASER_rav[s][0]; A = EASER_rav[s][1]; return; }
+		easer_RAf0(esi, fi, Ei, esf, ff, Ef);
+		int s = EASER_ras; EASER_ras ^= 1; if (EASER_ran < 2) EASER_ran++;
+		memcpy(EASER_rak[s], k, sizeof(k)); EASER_rav[s][0] = R; EASER_rav[s][1] = A;
+	}
+
+	void ConcreteCM::easer_RAf0(double esi, double fi, double Ei, double esf, double ff, double Ef)
 	{
 		double Esec=(ff-fi)/(esf-esi);
 		R=(Ef-Esec)/(Esec-Ei);
@@ -4177,6 +4252,8 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 		Cea=Tea;
 		Ceb=Teb;
 		Ced=Ted;
+		Ceann=Teann;	// EASER fix 8
+		Ceanp=Teanp;
 		Cinc=Tinc;
 		Crule=Trule;
 
@@ -4184,6 +4261,8 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 		Cstrain = Tstrain;
 		Cstress = Tstress;
 		Ctangent = Ttangent;	
+
+		EASER_SAVE_AUX	// EASER patch (v6)
 
 		return 0;
 	}
@@ -4220,6 +4299,8 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 		Tea=Cea;
 		Teb=Ceb;
 		Ted=Ced;
+		Teann=Ceann;	// EASER fix 8
+		Teanp=Ceanp;
 		Tinc=Cinc;         
 		Trule=Crule;
 
@@ -4227,6 +4308,8 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 		Tstrain = Cstrain;
 		Tstress = Cstress;
 		Ttangent = Ctangent;
+
+		EASER_RESTORE_AUX	// EASER patch (v6)
 
 		return 0;
 	}
@@ -4252,6 +4335,8 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 		Cea=0.0;
 		Ceb=0.0;
 		Ced=0.0;
+		Ceann=0.0;	// EASER fix 8
+		Ceanp=0.0;
 		Cinc=0.0;
 		Crule=0.0;
 
@@ -4260,6 +4345,11 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 		Cstress = 0.0;
 		Ctangent = Ec0;   
 			
+		// EASER patch (v6): auxiliary members back to zero too
+		EASER_ZERO_AUX
+	EASER_INIT_OPT
+		EASER_SAVE_AUX
+
 		// Reset trial variables and state
 		this->revertToLastCommit();
 
@@ -4283,6 +4373,7 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 		theCopy->xcrp = xcrp;
 		theCopy->mon = mon;
 		theCopy->Gap = Gap;
+		theCopy->resf = resf;
 		
 		// Converged history variables
 		theCopy-> Ceunn=Ceunn;
@@ -4299,6 +4390,8 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 		theCopy-> Cea=Cea;
 		theCopy-> Ceb=Ceb;
 		theCopy-> Ced=Ced;
+		theCopy-> Ceann=Ceann;	// EASER fix 8
+		theCopy-> Ceanp=Ceanp;
 		theCopy-> Cinc=Cinc;
 		theCopy-> Crule=Crule;
 
@@ -4306,6 +4399,9 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 		theCopy->Cstrain = Cstrain;
 		theCopy->Cstress = Cstress;
 		theCopy->Ctangent = Ctangent;
+		// EASER patch (v6): committed auxiliary members
+		for (int k = 0; k < 77; k++) theCopy->EASER_Caux[k] = EASER_Caux[k];
+		theCopy->revertToLastCommit();
 
 		return theCopy;
 	}
@@ -4313,7 +4409,7 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 	int ConcreteCM::sendSelf (int commitTag, Channel& theChannel)
 	{
 		int res = 0;
-		static Vector data(31);
+		static Vector data(34);
 		data(0) = this->getTag();
 
 		// Material properties
@@ -4351,6 +4447,9 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 		data(28) = Cstrain;
 		data(29) = Cstress;
 		data(30) = Ctangent;
+		data(31) = resf;
+		data(32) = Ceann;	// EASER fix 8
+		data(33) = Ceanp;
 
 		// Data is only sent after convergence, so no trial variables
 		// need to be sent through data vector
@@ -4366,7 +4465,7 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 		FEM_ObjectBroker& theBroker)
 	{
 		int res = 0;
-		static Vector data(31);
+		static Vector data(34);
 		res = theChannel.recvVector(this->getDbTag(), commitTag, data);
 
 		if (res < 0) {
@@ -4411,6 +4510,9 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 			Cstrain = data(28);
 			Cstress = data(29);
 			Ctangent = data(30);
+			resf = data(31);
+			Ceann = data(32);	// EASER fix 8
+			Ceanp = data(33);
 
 			// Set trial state variables
 			Tstrain = Cstrain;
