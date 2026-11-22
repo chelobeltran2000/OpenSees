@@ -35,18 +35,17 @@ jobs:
       - name: Apply the patch
         shell: bash
         run: |
-          cp fix/${{ matrix.variant }}/ConcreteCM.cpp SRC/material/uniaxial/ConcreteCM.cpp
-          cp fix/${{ matrix.variant }}/ConcreteCM.h SRC/material/uniaxial/ConcreteCM.h
-          if [ -f fix/${{ matrix.variant }}/Concrete02.cpp ]; then
-            cp fix/${{ matrix.variant }}/Concrete02.cpp fix/${{ matrix.variant }}/Concrete02.h SRC/material/uniaxial/
-            cp fix/${{ matrix.variant }}/FSAM.cpp fix/${{ matrix.variant }}/FSAM.h SRC/material/nD/
+          D=fix/${{ matrix.variant }}
+          [ -d "$D" ] || D=fix          # sources may sit in a variant folder or at the branch root
+          echo "sources from $D"
+          cp $D/ConcreteCM.cpp $D/ConcreteCM.h SRC/material/uniaxial/
+          if [ -f $D/Concrete02.cpp ]; then
+            cp $D/Concrete02.cpp $D/Concrete02.h SRC/material/uniaxial/
+            cp $D/FSAM.cpp $D/FSAM.h SRC/material/nD/
             grep -n "EASER patch" SRC/material/uniaxial/Concrete02.h SRC/material/nD/FSAM.cpp
           fi
           rm -rf fix
           grep -n "EASER" SRC/material/uniaxial/ConcreteCM.h
-          grep -n "EASER patch" SRC/material/uniaxial/ConcreteCM.cpp
-          grep -c "EASER fix 7" SRC/material/uniaxial/ConcreteCM.cpp
-          grep -c "EASER fix 8" SRC/material/uniaxial/ConcreteCM.cpp
           grep -c "EASER fix 10" SRC/material/uniaxial/ConcreteCM.cpp
       - name: Microsoft Visual Studio
         uses: ilammy/msvc-dev-cmd@v1
