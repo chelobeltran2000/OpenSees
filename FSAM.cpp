@@ -443,7 +443,7 @@ FSAM::FSAM (int tag,
 	// EASER patch (E-SFI): con otro hormigon (Concrete02) la etapa sin agrietar usa copias del hormigon entregado
 	if (theMaterial[4]->getClassTag() == MAT_TAG_ConcreteCM)
 		theMaterial[2] = new ConcreteCM(-1111, ConcreteInput[1], ConcreteInput[2], ConcreteInput[3], 
-		ConcreteInput[4], ConcreteInput[5], ConcreteInput[6], ConcreteInput[7], ConcreteInput[8], ConcreteInput[9], 1); // create monotonic concrete
+		ConcreteInput[4], ConcreteInput[5], ConcreteInput[6], ConcreteInput[7], ConcreteInput[8], ConcreteInput[9], 1, 0, (ConcreteInput.Size() > 11 ? ConcreteInput[11] : 0.0)); // create monotonic concrete; EASER patch v8h: con el residual del material entregado
 	else
 		theMaterial[2] = theMaterial[4]->getCopy();
 
@@ -458,7 +458,7 @@ FSAM::FSAM (int tag,
 	// EASER patch (E-SFI): con otro hormigon (Concrete02) la etapa sin agrietar usa copias del hormigon entregado
 	if (theMaterial[4]->getClassTag() == MAT_TAG_ConcreteCM)
 		theMaterial[3] = new ConcreteCM(-2222, ConcreteInput[1], ConcreteInput[2], ConcreteInput[3], 
-		ConcreteInput[4], ConcreteInput[5], ConcreteInput[6], ConcreteInput[7], ConcreteInput[8], ConcreteInput[9], 1); // create monotonic concrete
+		ConcreteInput[4], ConcreteInput[5], ConcreteInput[6], ConcreteInput[7], ConcreteInput[8], ConcreteInput[9], 1, 0, (ConcreteInput.Size() > 11 ? ConcreteInput[11] : 0.0)); // create monotonic concrete; EASER patch v8h: con el residual del material entregado
 	else
 		theMaterial[3] = theMaterial[4]->getCopy();
 

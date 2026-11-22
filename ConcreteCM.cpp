@@ -4540,7 +4540,7 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 		double data2 = 0.0;
 		theResponse = new MaterialResponse(this, 102, data2);
 	} else if (strcmp(argv[0],"getInputParameters") == 0) {
-		Vector data3(11);
+		Vector data3(12);   // EASER patch: +resf
 		data3.Zero();
 		theResponse = new MaterialResponse(this, 103, data3);
 	} else
@@ -4632,7 +4632,7 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 
 	Vector ConcreteCM::getInputParameters(void)
 	{
-		Vector input_par(11); // size = max number of parameters (assigned + default)
+		Vector input_par(12); // size = max number of parameters (assigned + default); EASER patch: +resf
 
 		input_par.Zero();
 
@@ -4647,6 +4647,7 @@ int ConcreteCM::setTrialStrain (double strain, double strainRate)
 		input_par(8) = rt; 
 		input_par(9) = xcrp;
 		input_par(10) = Gap;
+		input_par(11) = resf;   // EASER patch (FSAM: residual de las copias monótonas)
 
 		return input_par;
 	}
