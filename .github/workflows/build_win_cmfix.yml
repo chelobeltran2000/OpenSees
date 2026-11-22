@@ -1,5 +1,6 @@
 # Builds opensees.pyd (Windows, Python 3.10-3.13) from OpenSees v3.8.0 + EASER ConcreteCM patch
-# (+ Concrete02/FSAM patch when the variant folder has them: v8f = E-SFI with Concrete02; v8g = v8f + E_SFI fixed).
+# (+ Concrete02/FSAM patch when the variant folder has them: v8f = E-SFI with Concrete02; v8g = v8f + E_SFI fixed;
+# v8h = v8g + ConcreteCM residual in the FSAM monotonic copies).
 # Copy of the official build-win job (.github/workflows/build_cmake.yml), with a Python-version matrix and only this job.
 # Goes in the fork as .github/workflows/build_win_cmfix.yml on branch ConcreteCM-Fix, whose ROOT holds one folder per
 # variant (v6/, opt/, res/) with the patched ConcreteCM.cpp and ConcreteCM.h; each variant is built for every Python version.
@@ -20,7 +21,7 @@ jobs:
       fail-fast: false
       matrix:
         python: ["3.10", "3.11", "3.12", "3.13"]
-        variant: ["v8g"]
+        variant: ["v8h"]
     steps:
       - name: OpenSees v3.8.0 (official repository)
         uses: actions/checkout@v4
@@ -51,6 +52,7 @@ jobs:
           rm -rf fix
           grep -n "EASER" SRC/material/uniaxial/ConcreteCM.h
           grep -c "EASER fix 10" SRC/material/uniaxial/ConcreteCM.cpp
+          grep -c "EASER patch v8h" SRC/material/nD/FSAM.cpp
       - name: Microsoft Visual Studio
         uses: ilammy/msvc-dev-cmd@v1
         with:
