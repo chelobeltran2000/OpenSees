@@ -99,6 +99,8 @@ Concrete02::Concrete02(int tag, double _fc, double _epsc0, double _fcu,
 {
   ecminP = 0.0;
   deptP = 0.0;
+  ecmin = 0.0;   // EASER patch (E-SFI): sin inicializar en el original
+  dept = 0.0;
 
   if (fc > 0) fc = -fc;
   if (epsc0 > 0) epsc0 = -epsc0;
@@ -120,6 +122,8 @@ Concrete02::Concrete02(int tag, double _fc, double _epsc0, double _fcu,
 {
   ecminP = 0.0;
   deptP = 0.0;
+  ecmin = 0.0;   // EASER patch (E-SFI): sin inicializar en el original
+  dept = 0.0;
 
   if (fc > 0) fc = -fc;
   if (epsc0 > 0) epsc0 = -epsc0;
@@ -143,6 +147,8 @@ Concrete02::Concrete02(int tag, double _fc, double _epsc0, double _fcu,
 Concrete02::Concrete02(void):
   UniaxialMaterial(0, MAT_TAG_Concrete02)
 {
+  ecminP = deptP = ecmin = dept = 0.0;   // EASER patch (E-SFI)
+  epsP = sigP = eps = sig = 0.0; eP = e = 0.0;
  
 }
 
@@ -325,6 +331,8 @@ Concrete02::revertToStart(void)
 {
   ecminP = 0.0;
   deptP = 0.0;
+  ecmin = 0.0;   // EASER patch (E-SFI): sin inicializar en el original
+  dept = 0.0;
 
   eP = 2.0*fc/epsc0;
   epsP = 0.0;
