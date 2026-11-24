@@ -87,8 +87,9 @@ void* OPS_E_SFI()
 		theMaterials[i] = 0;
 	}
 
+	int bandN = 0; int* bandT = 0;   // EASER v8i
 	numArgs = OPS_GetNumRemainingInputArgs();
-	while (numArgs >= (m + 1)) {
+	while (numArgs > 0) {   // EASER v8i (antes: >= m + 1)
 		//OPS_GetStringCopy(&str);
 		str = OPS_GetString();
 		if (strcmp(str, "-thick") == 0) {
@@ -102,6 +103,19 @@ void* OPS_E_SFI()
 			numData = m;
 			if (OPS_GetDoubleInput(&numData, theWidth) != 0) {
 				opserr << "Invalid width value for E_SFI " << iData[0] << endln;
+				return 0;
+			}
+		}
+		else if (strcmp(str, "-band") == 0) {   // EASER v8i
+			numData = 1;
+			if (OPS_GetIntInput(&numData, &bandN) != 0 || bandN < 2) {
+				opserr << "Invalid -band n for E_SFI " << iData[0] << endln;
+				return 0;
+			}
+			bandT = new int[bandN];
+			numData = bandN;
+			if (OPS_GetIntInput(&numData, bandT) != 0) {
+				opserr << "Invalid -band nodes for E_SFI " << iData[0] << endln;
 				return 0;
 			}
 		}
@@ -126,6 +140,10 @@ void* OPS_E_SFI()
 	}
 
 	theElement = new E_SFI(iData[0], iData[1], iData[2], theMaterials, theThickness, theWidth, iData[3], dData[0]);
+	if (bandN > 1 && theElement != 0)   // EASER v8i
+		((E_SFI*)theElement)->setBand(bandN, bandT);
+	if (bandT != 0)
+		delete[] bandT;
 
 	// Cleanup dynamic memory
 	if (theThickness != 0)
@@ -404,6 +422,8 @@ E_SFI::~E_SFI()
 		delete[]ky;
 	if (kh != 0)
 		delete[]kh;
+	if (bandTags != 0) delete[] bandTags;   // EASER v8i
+	if (bandNodes != 0) delete[] bandNodes;
 	if (Fx != 0)
 		delete[]Fx;
 	if (Fy != 0)
@@ -504,6 +524,23 @@ void E_SFI::setDomain(Domain* theDomain)
 
 	theNodes[0] = theDomain->getNode(Nd1);
 	theNodes[1] = theDomain->getNode(Nd2);
+	if (nBand > 1) {   // EASER v8i
+		if (bandNodes == 0) bandNodes = new Node * [nBand];
+		bandQi = -1; bandQj = -1;
+		for (int q = 0; q < nBand; q++) {
+			bandNodes[q] = theDomain->getNode(bandTags[q]);
+			if (bandNodes[q] == 0) { opserr << "WARNING E_SFI " << this->getTag() << " -band node " << bandTags[q] << " not in domain: banda desactivada\n"; nBand = 0; break; }
+			if (bandTags[q] == Nd1) bandQi = q;
+			if (bandTags[q] == Nd2) bandQj = q;
+		}
+		if (nBand > 1) {
+			bandH = bandNodes[nBand - 1]->getCrds()(1) - bandNodes[0]->getCrds()(1);
+			if (bandQi < 0 || bandQj != bandQi + 1 || bandH <= 0.0) {
+				opserr << "WARNING E_SFI " << this->getTag() << " -band: iNode/jNode no consecutivos en la banda o alto <= 0: banda desactivada\n";
+				nBand = 0;
+			}
+		}
+	}
 
 	// Get coordinates of end nodes
 	const Vector& end1Crd = theNodes[0]->getCrds();
@@ -1180,12 +1217,14 @@ void E_SFI::computeCurrentStrain(void)
 	}
 
 	Dsh = -Dxy[0]; // Store shear deformations for the recorder
+	double gBand = (nBand > 1) ? this->bandGamma() : 0.0;   // EASER v8i
 
 	// Strains at each RC panel (macro-fiber)
 	for (int i = 0; i < m; i++) {
 		E_SFIStrainY[i] = Dy[i] / h;
 		E_SFIStrainXY[i] = -Dxy[i] / h;
-		E_SFIStrainX[i] = 0.55 * (rhoFac != 0 ? rhoFac[i] : 1.0) * (1.0 - pow(3.0, -800.0 * fabs(E_SFIStrainXY[i]))) * fabs(E_SFIStrainXY[i]);   // EASER patch
+		double gx = (nBand > 1) ? gBand : E_SFIStrainXY[i];   // EASER v8i: distorsión de la banda
+		E_SFIStrainX[i] = 0.55 * (rhoFac != 0 ? rhoFac[i] : 1.0) * (1.0 - pow(3.0, -800.0 * fabs(gx))) * fabs(gx);   // EASER patch
 	}
 
 	// Store strains into a single vector
@@ -1239,11 +1278,19 @@ const Matrix& E_SFI::getTangentConsistent(void)
 	E_SFIK.Zero();
 	double a[6] = { -1.0, 0.0, c * h, 1.0, 0.0, (1.0 - c) * h };
 	const double ln3 = log(3.0);
+	double gB = 0.0, db[6] = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };   // EASER v8i: d(g_banda)/du en los GDL propios
+	if (nBand > 1) {
+		gB = this->bandGamma();
+		db[0] = (bandQi == 0 ? -1.0 : 0.0) / bandH;
+		db[2] = (c * bandSeg(bandQi) + (1.0 - c) * bandSeg(bandQi - 1)) / bandH;
+		db[3] = (bandQj == nBand - 1 ? 1.0 : 0.0) / bandH;
+		db[5] = (c * bandSeg(bandQj) + (1.0 - c) * bandSeg(bandQj - 1)) / bandH;
+	}
 	for (int i = 0; i < m; i++) {
 		const Matrix& D = theMaterial[i]->getTangent();
 		double A = AcY[i];
 		double s[6] = { 0.0, -1.0, -x[i], 0.0, 1.0, x[i] };
-		double g = E_SFIStrainXY[i];
+		double g = (nBand > 1) ? gB : E_SFIStrainXY[i];   // EASER v8i
 		double ag = fabs(g);
 		double p = pow(3.0, -800.0 * ag);
 		double f = (rhoFac != 0 ? rhoFac[i] : 1.0);
@@ -1251,7 +1298,7 @@ const Matrix& E_SFI::getTangentConsistent(void)
 		for (int j = 0; j < 6; j++) {
 			double dg = a[j] / h;
 			double dey = s[j] / h;
-			double dex = dexdg * dg;
+			double dex = dexdg * ((nBand > 1) ? db[j] : dg);   // EASER v8i
 			double dtau = D(2, 0) * dex + D(2, 1) * dey + D(2, 2) * dg;
 			double dsy = D(1, 0) * dex + D(1, 1) * dey + D(1, 2) * dg;
 			for (int k = 0; k < 6; k++)
@@ -1259,4 +1306,32 @@ const Matrix& E_SFI::getTangentConsistent(void)
 		}
 	}
 	return E_SFIK;
+}
+
+// ------------------------------------------------------------------------- EASER v8i: banda para eps_x
+void E_SFI::setBand(int n, const int* tags)
+{
+	if (bandTags != 0) delete[] bandTags;
+	if (bandNodes != 0) { delete[] bandNodes; bandNodes = 0; }
+	nBand = n;
+	bandTags = new int[n];
+	for (int q = 0; q < n; q++) bandTags[q] = tags[q];
+}
+
+double E_SFI::bandSeg(int q)
+{
+	if (q < 0 || q >= nBand - 1) return 0.0;
+	return bandNodes[q + 1]->getCrds()(1) - bandNodes[q]->getCrds()(1);
+}
+
+double E_SFI::bandGamma(void)
+{
+	double s = 0.0;
+	for (int q = 0; q < nBand - 1; q++) {
+		const Vector& d0 = bandNodes[q]->getTrialDisp();
+		const Vector& d1 = bandNodes[q + 1]->getTrialDisp();
+		double hq = bandSeg(q);
+		s += -d0(0) + d1(0) + c * hq * d0(2) + (1.0 - c) * hq * d1(2);
+	}
+	return s / bandH;
 }

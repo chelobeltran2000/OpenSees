@@ -39,6 +39,8 @@ class Response;
 class E_SFI : public Element
 {
 public:
+	void setBand(int n, const int* tags);   // EASER v8i: banda para eps_x
+
 
 	// constructors
 	E_SFI(int tag,					    // element tag
@@ -142,6 +144,13 @@ private:
 	double *E_SFIStrain;				// macro-fiber strains 
 	double *Dens;						// macro-fiber densities
 	double *rhoFac;						// EASER patch: (1 + rho_h)^-60 por panel (0 = sin parche)
+	int nBand = 0;                       // EASER v8i: nodos de la banda (0 = sin banda)
+	int* bandTags = nullptr;
+	Node** bandNodes = nullptr;
+	double bandH = 0.0;                  // alto de la banda
+	int bandQi = -1, bandQj = -1;        // posición de iNode y jNode en la banda
+	double bandGamma(void);              // distorsión media de la banda
+	double bandSeg(int q);               // alto del tramo q (q, q+1); 0 fuera de rango
 	int esfiKT;							// EASER patch: 1 = tangente consistente
 
 	// for recorders
